@@ -64,7 +64,7 @@ impl Server {
                     for client in clients.iter() {
                         for message in client.incoming.try_iter() {
                             println!("Received: <{}> {}", client.username, message);
-                            Server::sendToAll(&clients, format!("Received: <{}> {}", client.username, message));
+                            Server::sendToAll(&clients, format!("<{}> {}", client.username, message));
                         }
                     }
                 }
@@ -114,7 +114,8 @@ impl Server {
             match connection.read(&mut buffer[..]) {
                 Ok(0) => break,
                 Ok(n) => {
-                    let string = String::from_utf8_lossy(&buffer[0..n]).to_string();
+                    let mut string = String::from_utf8_lossy(&buffer[0..n]).to_string();
+                    string.pop();
                     incoming.send(string);
                 }
                 Err(e) => {
@@ -123,6 +124,6 @@ impl Server {
                 }
             }
         }
-        println!("connected closed");
+        println!("Connection closed");
     }
 }

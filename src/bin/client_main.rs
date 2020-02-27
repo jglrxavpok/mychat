@@ -1,9 +1,9 @@
 mod client;
-use std::env;
+use std::{env, thread};
 use std::process::exit;
 use std::str::FromStr;
 use std::net::{IpAddr, TcpStream, SocketAddr};
-use std::io::{Write, Read};
+use std::io::{Write, Read, stdin};
 use std::thread::sleep;
 use std::time::Duration;
 
@@ -35,22 +35,34 @@ fn main() -> std::io::Result<()> {
     connection.flush()?;
     sleep(Duration::from_millis(100));
     connection.write_all("Hello from client2".as_bytes())?;
-    let mut buffer = [0; 128];
-    loop {
-        match connection.read(&mut buffer[..]) {
-            Ok(0) => {
-                println!("Connection properly closed");
-                break;
-            }
-            Ok(n) => {
-                println!("{}", String::from_utf8_lossy(&buffer[0..n]));
-            }
-            Err(e) => {
-                eprintln!("{}", e);
-                break;
+
+    let mut connectionReader = connection.try_clone().unwrap();
+    thread::spawn(move || {
+        loop {
+            let mut buffer = [0; 128];
+            match connectionReader.read(&mut buffer[..]) {
+                Ok(0) => {
+                    println!("Connection properly closed");
+                    break;
+                }
+                Ok(n) => {
+                    let mut msg = String::from_utf8_lossy(&buffer[0..n]).to_string();
+                    println!("From server: {}", msg);
+                }
+                Err(e) => {
+                    eprintln!("{}", e);
+                    break;
+                }
             }
         }
+        println!("Connection closed.");
+    });
+    loop {
+        let mut line = String::new();
+        stdin().read_line(&mut line).expect("Invalid line");
+        print!("\x1B[1A\x1B[K"); // clear line
+        connection.write_all(line.as_bytes())?;
     }
-    println!("Connection closed.");
+
     Ok(())
 }
