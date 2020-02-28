@@ -5,6 +5,7 @@ use crossbeam::thread as cb_thread;
 use std::io::{Write, Read};
 use std::sync::Arc;
 use std::sync::mpsc::{channel, Sender, sync_channel, SyncSender, Receiver};
+use crate::server::UserState::JustConnected;
 
 pub struct Server {
     listener: net::TcpListener,
@@ -15,12 +16,13 @@ pub struct User {
     username: String,
     outgoing: SyncSender<String>,
     incoming: Receiver<String>,
+    state: UserState
 }
 
-enum EventType {
-    Connection,
-    Disconnection,
-    Message,
+#[derive(Copy, Clone, Ord, PartialOrd, Eq, PartialEq)]
+enum UserState {
+    JustConnected,
+    Authentified,
 }
 
 impl User {
@@ -29,6 +31,7 @@ impl User {
             username: name,
             outgoing,
             incoming,
+            state: JustConnected,
         }
     }
 }
@@ -45,6 +48,7 @@ impl Server {
     }
 
     fn sendToAll(clients: &&mut Vec<User>, message: String) {
+        println!("sending: {}", message);
         for client in clients.iter() {
             client.outgoing.send(message.clone());
         }
@@ -57,15 +61,27 @@ impl Server {
         cb_thread::scope(|scope| {
             scope.spawn(move |_scope| {
                 loop {
+                    let mut messagesToSend = vec![];
                     for newClient in newClientsRx.try_iter() {
                         println!("newclient: {}", newClient.username);
                         clients.push(newClient);
                     }
-                    for client in clients.iter() {
-                        for message in client.incoming.try_iter() {
+                    for client in clients.iter_mut() {
+                        for mut message in client.incoming.try_iter() {
+                            message.pop();
                             println!("Received: <{}> {}", client.username, message);
-                            Server::sendToAll(&clients, format!("<{}> {}", client.username, message));
+                            if client.state == UserState::JustConnected {
+                                client.username = message;
+                                client.state = UserState::Authentified;
+                                messagesToSend.push(format!("* {} just connected.", client.username));
+                                println!("{}", format!("* {} just connected.", client.username));
+                            } else {
+                                messagesToSend.push(format!("<{}> {}", client.username, message));
+                            }
                         }
+                    }
+                    for message in messagesToSend {
+                        Server::sendToAll(&clients, message);
                     }
                 }
             });
@@ -77,7 +93,8 @@ impl Server {
                         let (incomingOut, incomingIn): (SyncSender<String>, Receiver<String>) = sync_channel(0);
                         let (outgoingOut, outgoingIn): (SyncSender<String>, Receiver<String>) = sync_channel(0);
 
-                        let name = String::from("Test");
+                        let mut name = String::from("Unnamed ");
+                        name.push_str(&address.to_string());
                         let user = User::new(name, outgoingOut, incomingIn);
                         newClientsTx.send(user);
 
@@ -85,6 +102,7 @@ impl Server {
                         let clonedAddr2 = address.clone();
                         let mut clonedStream1 = stream.try_clone().unwrap();
                         let mut clonedStream2 = stream.try_clone().unwrap();
+                        Server::welcome_client(&mut stream);
                         scope.spawn(move |_scope| {
                             Server::handle_client_input(clonedStream1, clonedAddr1,incomingOut);
                         });
@@ -99,6 +117,10 @@ impl Server {
                 }
             }
         }).expect("Failed during client accepts");
+    }
+
+    fn welcome_client(mut connection: &TcpStream) {
+        connection.write_all("Welcome! Please enter your name.".as_bytes());
     }
 
     fn handle_client_output(mut connection: TcpStream, address: SocketAddr, outgoing: Receiver<String>) {

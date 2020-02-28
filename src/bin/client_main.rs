@@ -31,10 +31,6 @@ fn main() -> std::io::Result<()> {
     };
 
     let mut connection = TcpStream::connect(SocketAddr::new(ip, port))?;
-    connection.write_all("Hello from client".as_bytes())?;
-    connection.flush()?;
-    sleep(Duration::from_millis(100));
-    connection.write_all("Hello from client2".as_bytes())?;
 
     let mut connectionReader = connection.try_clone().unwrap();
     thread::spawn(move || {
@@ -47,7 +43,7 @@ fn main() -> std::io::Result<()> {
                 }
                 Ok(n) => {
                     let mut msg = String::from_utf8_lossy(&buffer[0..n]).to_string();
-                    println!("From server: {}", msg);
+                    println!("{}", msg);
                 }
                 Err(e) => {
                     eprintln!("{}", e);
